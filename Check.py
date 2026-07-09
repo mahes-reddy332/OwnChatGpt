@@ -1,15 +1,21 @@
+import os
+from datetime import datetime
+
+import speech_recognition as sr
 import streamlit as st
 from openai import OpenAI
-import speech_recognition as sr
-from datetime import datetime
 
 # -----------------------------
 # ✅ CONFIG
 # -----------------------------
 st.set_page_config(page_title="AI Code Debugger", page_icon="🧠", layout="wide")
 
-# ⚠️ IMPORTANT: Replace with your own API key
-client = OpenAI(api_key="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")
+api_key = os.getenv("OPENAI_API_KEY")
+if not api_key:
+    st.error("OpenAI API key is not configured. Set OPENAI_API_KEY before running the app.")
+    st.stop()
+
+client = OpenAI(api_key=api_key)
 
 SYSTEM_PROMPT = """
 You are an expert AI coding assistant who helps debug and explain code in a clear and friendly way.
