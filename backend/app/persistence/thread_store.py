@@ -10,21 +10,15 @@ from app.agent.graph import get_agent_graph
 def format_short_title(text: str) -> str:
     """
     Condense a user prompt into a sweet, short, polished thread heading (2-4 words max).
-    Example:
-      'Can you speak hindi . If yes write some...' -> 'Hindi Conversation'
-      'List 10 Repositories in my github' -> 'GitHub Repositories'
-      'List my tomorrow from google calendar events on august 18' -> 'Google Calendar'
     """
     if not text:
         return "New Conversation"
 
     clean = text.strip()
-    # Normalize whitespace & remove code blocks/newlines
     clean = re.sub(r"```[\s\S]*?```", "", clean)
     clean = clean.split("\n")[0].strip()
     lower = clean.lower()
 
-    # High-signal intent mappings
     if "hindi" in lower:
         return "Hindi Conversation"
     if "telugu" in lower:
@@ -52,7 +46,6 @@ def format_short_title(text: str) -> str:
     if "weather" in lower:
         return "Weather Lookup"
 
-    # Strip conversational lead-in phrases
     patterns = [
         r"^(can\s+you\s+(please\s+)?(tell\s+me|write|explain|show|help\s+with|speak|do))\s+",
         r"^(please\s+(write|explain|show|tell\s+me|help\s+with|list|give))\s+",
@@ -64,7 +57,6 @@ def format_short_title(text: str) -> str:
     for pat in patterns:
         clean = re.sub(pat, "", clean, flags=re.IGNORECASE).strip()
 
-    # Take 3 to 4 core words
     words = clean.split()
     if len(words) > 4:
         words = words[:4]
@@ -73,7 +65,6 @@ def format_short_title(text: str) -> str:
     if not title:
         title = "New Chat"
 
-    # Limit to 28 characters max
     if len(title) > 28:
         title = title[:25].rstrip() + "..."
 
@@ -82,17 +73,20 @@ def format_short_title(text: str) -> str:
 
 class ThreadStore:
     """
-    In-memory and persistent storage manager for conversation threads and metadata.
-    Provides thread CRUD operations and extracts past conversation state from LangGraph.
+    In-memory storage manager for conversation threads and metadata with strict user_id scoping.
+    Architected for future PostgreSQL database table migration.
     """
 
     def __init__(self):
         self._threads: dict[str, Thread] = {}
 
     async def create_thread(
-        self, thread_id: str | None = None, title: str | None = None
+        self,
+        thread_id: str | None = None,
+        title: str | None = None,
+        user_id: str | None = None,
     ) -> Thread:
-        """Create and store a new conversation thread."""
+        """Create and store a new conversation thread scoped to a user."""
         tid = thread_id or str(uuid.uuid4())
         now = datetime.now(timezone.utc)
         thread = Thread(
@@ -100,30 +94,39 @@ class ThreadStore:
             title=title or "New Conversation",
             created_at=now,
             updated_at=now,
-            metadata=ThreadMetadata(),
+            metadata=ThreadMetadata(user_id=user_id),
         )
         self._threads[tid] = thread
         return thread
 
-    async def list_threads(self) -> list[Thread]:
-        """List all threads sorted by most recently updated."""
-        threads = list(self._threads.values())
+    async def list_threads(self, user_id: str | None = None) -> list[Thread]:
+        """List all threads for a specific user, sorted by most recently updated."""
+        threads = [
+            t for t in self._threads.values()
+            if user_id is None or t.metadata.user_id == user_id or t.metadata.user_id is None
+        ]
         for t in threads:
             if len(t.title) > 28 or "..." in t.title:
                 t.title = format_short_title(t.title)
         threads.sort(key=lambda t: t.updated_at, reverse=True)
         return threads
 
-    async def get_thread(self, thread_id: str) -> Thread | None:
-        """Retrieve a thread by its ID."""
+    async def get_thread(self, thread_id: str, user_id: str | None = None) -> Thread | None:
+        """Retrieve a thread by its ID and verify user ownership."""
         t = self._threads.get(thread_id)
-        if t and (len(t.title) > 28 or "..." in t.title):
+        if not t:
+            return None
+        if user_id is not None and t.metadata.user_id is not None and t.metadata.user_id != user_id:
+            return None
+        if len(t.title) > 28 or "..." in t.title:
             t.title = format_short_title(t.title)
         return t
 
-    async def update_thread(self, thread_id: str, title: str) -> Thread | None:
-        """Update a thread's title and updated_at timestamp."""
-        thread = self._threads.get(thread_id)
+    async def update_thread(
+        self, thread_id: str, title: str, user_id: str | None = None
+    ) -> Thread | None:
+        """Update a thread's title if owned by the user."""
+        thread = await self.get_thread(thread_id, user_id)
         if not thread:
             return None
         thread.title = title
@@ -131,27 +134,31 @@ class ThreadStore:
         return thread
 
     async def touch_thread(
-        self, thread_id: str, auto_title_candidate: str | None = None
+        self,
+        thread_id: str,
+        auto_title_candidate: str | None = None,
+        user_id: str | None = None,
     ) -> Thread:
         """
-        Update the thread's last active timestamp. If the thread is new or default-titled,
-        automatically generate a sweet, short, topical title.
+        Update the thread's last active timestamp and user ownership.
         """
         thread = self._threads.get(thread_id)
         now = datetime.now(timezone.utc)
 
         if not thread:
-            # Auto-create with concise title
             title = format_short_title(auto_title_candidate) if auto_title_candidate else "New Conversation"
             thread = Thread(
                 id=thread_id,
                 title=title,
                 created_at=now,
                 updated_at=now,
-                metadata=ThreadMetadata(),
+                metadata=ThreadMetadata(user_id=user_id),
             )
             self._threads[thread_id] = thread
             return thread
+
+        if user_id and not thread.metadata.user_id:
+            thread.metadata.user_id = user_id
 
         thread.updated_at = now
         if thread.title in ("New Conversation", "New Chat") and auto_title_candidate:
@@ -159,17 +166,18 @@ class ThreadStore:
 
         return thread
 
-    async def delete_thread(self, thread_id: str) -> bool:
-        """Delete a thread from the store."""
+    async def delete_thread(self, thread_id: str, user_id: str | None = None) -> bool:
+        """Delete a thread from the store if owned by the user."""
+        thread = await self.get_thread(thread_id, user_id)
+        if not thread:
+            return False
         if thread_id in self._threads:
             del self._threads[thread_id]
             return True
         return False
 
     async def get_thread_messages(self, thread_id: str) -> list[ChatMessageItem]:
-        """
-        Restore past conversation messages directly from the LangGraph checkpointer.
-        """
+        """Restore past conversation messages directly from the LangGraph checkpointer."""
         graph = get_agent_graph()
         config = {"configurable": {"thread_id": thread_id}}
         
@@ -182,7 +190,6 @@ class ThreadStore:
             chat_items: list[ChatMessageItem] = []
 
             for msg in messages:
-                # Omit internal SystemMessages from user-visible chat history
                 if isinstance(msg, SystemMessage):
                     continue
 

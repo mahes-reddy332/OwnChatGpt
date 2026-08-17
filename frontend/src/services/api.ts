@@ -11,16 +11,200 @@ import type {
 } from '../types/events';
 import type { Thread, ThreadDetail } from '../types/thread';
 import type { IngestedDocument } from '../types/rag';
+import type { User, UserPreferences, SessionInfo } from '../types/auth';
 
 const API_BASE = '/api';
 
 /**
- * Send a non-streaming chat message.
+ * Helper to retrieve CSRF token from document cookie.
  */
+export function getCsrfToken(): string {
+  const match = document.cookie.match(new RegExp('(^|;\\s*)nexus_csrf=([^;]*)'));
+  return match ? decodeURIComponent(match[2]) : '';
+}
+
+/**
+ * Build headers for API requests including anti-CSRF token on mutating actions.
+ */
+function buildHeaders(isJson: boolean = true, isMutating: boolean = false): Record<string, string> {
+  const headers: Record<string, string> = {};
+  if (isJson) {
+    headers['Content-Type'] = 'application/json';
+  }
+  if (isMutating) {
+    const csrf = getCsrfToken();
+    if (csrf) {
+      headers['X-CSRF-Token'] = csrf;
+    }
+  }
+  return headers;
+}
+
+/* =========================================================================
+   AUTHENTICATION API
+   ========================================================================= */
+
+export async function signupApi(
+  email: string,
+  password: string,
+  displayName: string,
+  avatarUrl?: string
+): Promise<User> {
+  const response = await fetch(`${API_BASE}/auth/signup`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: buildHeaders(true, false), // CSRF exempt bootstrap
+    body: JSON.stringify({
+      email,
+      password,
+      display_name: displayName,
+      avatar_url: avatarUrl,
+    }),
+  });
+
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({ detail: 'Failed to sign up' }));
+    throw new Error(err.detail || `HTTP ${response.status}`);
+  }
+
+  return response.json();
+}
+
+export async function loginApi(email: string, password: string): Promise<User> {
+  const response = await fetch(`${API_BASE}/auth/login`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: buildHeaders(true, false), // CSRF exempt bootstrap
+    body: JSON.stringify({ email, password }),
+  });
+
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({ detail: 'Invalid credentials' }));
+    throw new Error(err.detail || `HTTP ${response.status}`);
+  }
+
+  return response.json();
+}
+
+export async function logoutApi(): Promise<void> {
+  await fetch(`${API_BASE}/auth/logout`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: buildHeaders(true, true),
+  });
+}
+
+export async function logoutAllApi(): Promise<void> {
+  await fetch(`${API_BASE}/auth/logout-all`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: buildHeaders(true, true),
+  });
+}
+
+export async function getMeApi(): Promise<User> {
+  const response = await fetch(`${API_BASE}/auth/me`, {
+    credentials: 'include',
+    headers: buildHeaders(true, false),
+  });
+
+  if (!response.ok) {
+    throw new Error(`Unauthenticated: HTTP ${response.status}`);
+  }
+
+  return response.json();
+}
+
+export async function updateProfileApi(
+  displayName?: string,
+  avatarUrl?: string
+): Promise<User> {
+  const response = await fetch(`${API_BASE}/auth/profile`, {
+    method: 'PUT',
+    credentials: 'include',
+    headers: buildHeaders(true, true),
+    body: JSON.stringify({ display_name: displayName, avatar_url: avatarUrl }),
+  });
+
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({ detail: 'Failed to update profile' }));
+    throw new Error(err.detail || `HTTP ${response.status}`);
+  }
+
+  return response.json();
+}
+
+export async function getPreferencesApi(): Promise<UserPreferences> {
+  const response = await fetch(`${API_BASE}/auth/preferences`, {
+    credentials: 'include',
+  });
+
+  if (!response.ok) {
+    throw new Error(`Failed to load preferences: HTTP ${response.status}`);
+  }
+
+  return response.json();
+}
+
+export async function updatePreferencesApi(
+  prefs: Partial<UserPreferences>
+): Promise<UserPreferences> {
+  const response = await fetch(`${API_BASE}/auth/preferences`, {
+    method: 'PUT',
+    credentials: 'include',
+    headers: buildHeaders(true, true),
+    body: JSON.stringify(prefs),
+  });
+
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({ detail: 'Failed to update preferences' }));
+    throw new Error(err.detail || `HTTP ${response.status}`);
+  }
+
+  return response.json();
+}
+
+export async function listSessionsApi(): Promise<SessionInfo[]> {
+  const response = await fetch(`${API_BASE}/auth/sessions`, {
+    credentials: 'include',
+  });
+
+  if (!response.ok) {
+    throw new Error(`Failed to list sessions: HTTP ${response.status}`);
+  }
+
+  return response.json();
+}
+
+export async function touchSessionApi(): Promise<void> {
+  await fetch(`${API_BASE}/auth/touch-session`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: buildHeaders(true, true),
+  });
+}
+
+export async function forgotPasswordApi(email: string): Promise<string> {
+  const response = await fetch(`${API_BASE}/auth/forgot-password`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: buildHeaders(true, false),
+    body: JSON.stringify({ email }),
+  });
+
+  const data = await response.json();
+  return data.message || 'Password reset request submitted.';
+}
+
+/* =========================================================================
+   CHAT & STREAMING API
+   ========================================================================= */
+
 export async function sendMessage(request: ChatRequest): Promise<ChatResponse> {
   const response = await fetch(`${API_BASE}/chat`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+    headers: buildHeaders(true, true),
     body: JSON.stringify(request),
   });
 
@@ -32,20 +216,18 @@ export async function sendMessage(request: ChatRequest): Promise<ChatResponse> {
   return response.json();
 }
 
-/**
- * Stream a chat message using Server-Sent Events (SSE).
- */
 export async function streamChatMessage(
   request: ChatRequest,
   callbacks: StreamCallbacks,
   signal?: AbortSignal
 ): Promise<void> {
+  const headers = buildHeaders(true, true);
+  headers['Accept'] = 'text/event-stream';
+
   const response = await fetch(`${API_BASE}/chat/stream`, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Accept: 'text/event-stream',
-    },
+    credentials: 'include',
+    headers,
     body: JSON.stringify(request),
     signal,
   });
@@ -111,7 +293,7 @@ export async function streamChatMessage(
           break;
       }
     } catch {
-      // Ignore non-json payload parse errors
+      // Ignore
     }
   };
 
@@ -136,7 +318,7 @@ export async function streamChatMessage(
     }
   } catch (err: unknown) {
     if (signal?.aborted) {
-      return; // Graceful abort
+      return;
     }
     const message = err instanceof Error ? err.message : 'Streaming failed';
     callbacks.onError?.({ detail: message, code: 'STREAM_READ_ERROR' });
@@ -146,19 +328,18 @@ export async function streamChatMessage(
   }
 }
 
-/**
- * Resume an interrupted LangGraph execution stream with human decision and optional modified arguments.
- */
 export async function resumeChatStream(
   request: import('../types/hitl').HitlResumeRequest,
   callbacks: StreamCallbacks = {},
   signal?: AbortSignal
 ): Promise<void> {
+  const headers = buildHeaders(true, true);
+  headers['Accept'] = 'text/event-stream';
+
   const response = await fetch(`${API_BASE}/chat/resume/stream`, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
+    credentials: 'include',
+    headers,
     body: JSON.stringify(request),
     signal,
   });
@@ -254,24 +435,25 @@ export async function resumeChatStream(
   }
 }
 
-/**
- * Fetch all conversation threads.
- */
+/* =========================================================================
+   THREADS API
+   ========================================================================= */
+
 export async function listThreads(): Promise<Thread[]> {
-  const response = await fetch(`${API_BASE}/threads`);
+  const response = await fetch(`${API_BASE}/threads`, {
+    credentials: 'include',
+  });
   if (!response.ok) {
     throw new Error(`Failed to list threads: HTTP ${response.status}`);
   }
   return response.json();
 }
 
-/**
- * Create a new conversation thread.
- */
 export async function createThread(title?: string): Promise<Thread> {
   const response = await fetch(`${API_BASE}/threads`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+    headers: buildHeaders(true, true),
     body: JSON.stringify({ title }),
   });
   if (!response.ok) {
@@ -280,27 +462,24 @@ export async function createThread(title?: string): Promise<Thread> {
   return response.json();
 }
 
-/**
- * Get thread details including past messages.
- */
 export async function getThreadDetail(threadId: string): Promise<ThreadDetail> {
-  const response = await fetch(`${API_BASE}/threads/${threadId}`);
+  const response = await fetch(`${API_BASE}/threads/${threadId}`, {
+    credentials: 'include',
+  });
   if (!response.ok) {
     throw new Error(`Failed to fetch thread ${threadId}: HTTP ${response.status}`);
   }
   return response.json();
 }
 
-/**
- * Update a thread's title.
- */
 export async function updateThreadTitle(
   threadId: string,
   title: string
 ): Promise<Thread> {
   const response = await fetch(`${API_BASE}/threads/${threadId}`, {
     method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+    headers: buildHeaders(true, true),
     body: JSON.stringify({ title }),
   });
   if (!response.ok) {
@@ -309,27 +488,31 @@ export async function updateThreadTitle(
   return response.json();
 }
 
-/**
- * Delete a thread.
- */
 export async function deleteThread(threadId: string): Promise<void> {
   const response = await fetch(`${API_BASE}/threads/${threadId}`, {
     method: 'DELETE',
+    credentials: 'include',
+    headers: buildHeaders(true, true),
   });
   if (!response.ok) {
     throw new Error(`Failed to delete thread: HTTP ${response.status}`);
   }
 }
 
-/**
- * Upload a document to the RAG knowledge base.
- */
+/* =========================================================================
+   DOCUMENTS & RAG API
+   ========================================================================= */
+
 export async function uploadDocument(file: File): Promise<IngestedDocument> {
   const formData = new FormData();
   formData.append('file', file);
 
+  const headers = buildHeaders(false, true);
+
   const response = await fetch(`${API_BASE}/documents/upload`, {
     method: 'POST',
+    credentials: 'include',
+    headers,
     body: formData,
   });
 
@@ -341,48 +524,47 @@ export async function uploadDocument(file: File): Promise<IngestedDocument> {
   return response.json();
 }
 
-/**
- * List all indexed documents in the knowledge base.
- */
 export async function listDocuments(): Promise<IngestedDocument[]> {
-  const response = await fetch(`${API_BASE}/documents`);
+  const response = await fetch(`${API_BASE}/documents`, {
+    credentials: 'include',
+  });
   if (!response.ok) {
     throw new Error(`Failed to list documents: HTTP ${response.status}`);
   }
   return response.json();
 }
 
-/**
- * List all active tools registered in the backend registry.
- */
+/* =========================================================================
+   TOOLS & MCP API
+   ========================================================================= */
+
 export async function listTools(): Promise<import('../types/tools').ToolDefinition[]> {
-  const response = await fetch(`${API_BASE}/tools`);
+  const response = await fetch(`${API_BASE}/tools`, {
+    credentials: 'include',
+  });
   if (!response.ok) {
     throw new Error(`Failed to list tools: HTTP ${response.status}`);
   }
   return response.json();
 }
 
-/**
- * List all configured MCP servers and statuses.
- */
 export async function listMCPServers(): Promise<import('../types/mcp').MCPServerConfig[]> {
-  const response = await fetch(`${API_BASE}/mcp/servers`);
+  const response = await fetch(`${API_BASE}/mcp/servers`, {
+    credentials: 'include',
+  });
   if (!response.ok) {
     throw new Error(`Failed to list MCP servers: HTTP ${response.status}`);
   }
   return response.json();
 }
 
-/**
- * Add or update an MCP server configuration.
- */
 export async function addOrUpdateMCPServer(
   server: import('../types/mcp').MCPServerConfig
 ): Promise<import('../types/mcp').MCPServerConfig> {
   const response = await fetch(`${API_BASE}/mcp/servers`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+    headers: buildHeaders(true, true),
     body: JSON.stringify(server),
   });
   if (!response.ok) {
@@ -391,24 +573,22 @@ export async function addOrUpdateMCPServer(
   return response.json();
 }
 
-/**
- * Delete an MCP server configuration.
- */
 export async function deleteMCPServer(serverId: string): Promise<void> {
   const response = await fetch(`${API_BASE}/mcp/servers/${serverId}`, {
     method: 'DELETE',
+    credentials: 'include',
+    headers: buildHeaders(true, true),
   });
   if (!response.ok) {
     throw new Error(`Failed to delete MCP server: HTTP ${response.status}`);
   }
 }
 
-/**
- * Reconnect to MCP servers and reload tools.
- */
 export async function reloadMCPServers(): Promise<{ success: boolean; tools_discovered: number }> {
   const response = await fetch(`${API_BASE}/mcp/reload`, {
     method: 'POST',
+    credentials: 'include',
+    headers: buildHeaders(true, true),
   });
   if (!response.ok) {
     throw new Error(`Failed to reload MCP servers: HTTP ${response.status}`);
@@ -416,25 +596,26 @@ export async function reloadMCPServers(): Promise<{ success: boolean; tools_disc
   return response.json();
 }
 
-/**
- * List all stored long-term memories for a user.
- */
-export async function listMemories(userId: string = 'default_user'): Promise<import('../types/memory').MemoryEntry[]> {
-  const response = await fetch(`${API_BASE}/memory?user_id=${encodeURIComponent(userId)}`);
+/* =========================================================================
+   LONG-TERM MEMORY API
+   ========================================================================= */
+
+export async function listMemories(): Promise<import('../types/memory').MemoryEntry[]> {
+  const response = await fetch(`${API_BASE}/memory`, {
+    credentials: 'include',
+  });
   if (!response.ok) {
     throw new Error(`Failed to list memories: HTTP ${response.status}`);
   }
   return response.json();
 }
 
-/**
- * Manually add a new long-term memory entry.
- */
-export async function createMemory(text: string, userId: string = 'default_user'): Promise<import('../types/memory').MemoryEntry> {
+export async function createMemory(text: string, category: string = 'fact'): Promise<import('../types/memory').MemoryEntry> {
   const response = await fetch(`${API_BASE}/memory`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ text, user_id: userId }),
+    credentials: 'include',
+    headers: buildHeaders(true, true),
+    body: JSON.stringify({ text, category }),
   });
   if (!response.ok) {
     throw new Error(`Failed to create memory: HTTP ${response.status}`);
@@ -442,30 +623,27 @@ export async function createMemory(text: string, userId: string = 'default_user'
   return response.json();
 }
 
-/**
- * Delete a specific long-term memory by ID.
- */
-export async function deleteMemory(memoryId: string, userId: string = 'default_user'): Promise<void> {
-  const response = await fetch(`${API_BASE}/memory/${memoryId}?user_id=${encodeURIComponent(userId)}`, {
+export async function deleteMemory(memoryId: string): Promise<void> {
+  const response = await fetch(`${API_BASE}/memory/${memoryId}`, {
     method: 'DELETE',
+    credentials: 'include',
+    headers: buildHeaders(true, true),
   });
   if (!response.ok) {
     throw new Error(`Failed to delete memory: HTTP ${response.status}`);
   }
 }
 
-/**
- * Update an existing long-term memory.
- */
 export async function updateMemory(
   memoryId: string,
   text: string,
-  userId: string = 'default_user'
+  category?: string
 ): Promise<import('../types/memory').MemoryEntry> {
-  const response = await fetch(`${API_BASE}/memory/${memoryId}?user_id=${encodeURIComponent(userId)}`, {
+  const response = await fetch(`${API_BASE}/memory/${memoryId}`, {
     method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ text }),
+    credentials: 'include',
+    headers: buildHeaders(true, true),
+    body: JSON.stringify({ text, category }),
   });
   if (!response.ok) {
     throw new Error(`Failed to update memory: HTTP ${response.status}`);
@@ -473,12 +651,11 @@ export async function updateMemory(
   return response.json();
 }
 
-/**
- * Clear all stored memories for a user.
- */
-export async function clearAllMemories(userId: string = 'default_user'): Promise<number> {
-  const response = await fetch(`${API_BASE}/memory/clear?user_id=${encodeURIComponent(userId)}`, {
+export async function clearAllMemories(): Promise<number> {
+  const response = await fetch(`${API_BASE}/memory/clear`, {
     method: 'DELETE',
+    credentials: 'include',
+    headers: buildHeaders(true, true),
   });
   if (!response.ok) {
     throw new Error(`Failed to clear memories: HTTP ${response.status}`);
@@ -487,12 +664,11 @@ export async function clearAllMemories(userId: string = 'default_user'): Promise
   return data.cleared_count || 0;
 }
 
-/**
- * Run conflict resolution and memory consolidation.
- */
-export async function cleanupMemories(userId: string = 'default_user'): Promise<number> {
-  const response = await fetch(`${API_BASE}/memory/cleanup?user_id=${encodeURIComponent(userId)}`, {
+export async function cleanupMemories(): Promise<number> {
+  const response = await fetch(`${API_BASE}/memory/cleanup`, {
     method: 'POST',
+    credentials: 'include',
+    headers: buildHeaders(true, true),
   });
   if (!response.ok) {
     throw new Error(`Failed to cleanup memories: HTTP ${response.status}`);
@@ -501,9 +677,6 @@ export async function cleanupMemories(userId: string = 'default_user'): Promise<
   return data.clean_memories_count || 0;
 }
 
-/**
- * Health check endpoint.
- */
 export async function checkHealth(): Promise<boolean> {
   try {
     const response = await fetch(`${API_BASE}/health`);

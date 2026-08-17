@@ -2,20 +2,23 @@
 
 ## 1. High-Level Architecture
 
-The Agentic AI RAG Chatbot is an asynchronous, event-driven agentic platform built on **LangGraph** (agent state management and execution), **FastAPI** (streaming backend API), and **React 19 + TypeScript** (responsive chat interface with tool and HITL cards).
+Nexus AI is an asynchronous, multi-agent AI workspace built on **LangGraph** (agent state graphs, checkpointers, and cyclical tool loops), **FastAPI** (streaming API, authentication, and MCP registry), and **React 19 + TypeScript** (responsive modular workspace shell).
 
 ```mermaid
 flowchart TD
     subgraph Frontend["React 19 + TypeScript Frontend (Vite)"]
         UI[Chat Interface / Message Stream]
         HITL_UI[HITL Approval Modal & Cards]
-        MODALS[Tool, MCP & Knowledge Base Modals]
+        ROUTER[React Router: Public & Protected Routes]
+        PAGES[Profile, Personalization, Settings, Skills, Connectors, Plugins, Language, Help]
     end
 
     subgraph Backend["FastAPI Backend (Python 3.11)"]
         API[FastAPI Router & SSE Streaming Adapter]
+        AUTH[Auth Subsystem: Opaque Sessions & CSRF]
+        CONN_REG[Connectors & Remote MCP Registry]
         TRACER[LangSmith Tracer Config]
-        REGISTRY[Tool Registry & MCP Manager]
+        REGISTRY[Unified Tool Registry]
     end
 
     subgraph Agent["LangGraph Pregel StateGraph"]
@@ -23,65 +26,55 @@ flowchart TD
         REMEMBER[remember_node: LTM Extraction]
         SUMMARIZE[summarize_conversation_node]
         CHAT[chat_node: ChatOpenAI / Groq LLM]
-        ROUTER{tools_condition}
+        ROUTER_NODE{tools_condition}
         TOOLS[tool_node: ToolNode Executor]
         INTERRUPT[HITL Interrupt Barrier]
         END_NODE((END))
 
         START --> REMEMBER --> SUMMARIZE --> CHAT
-        CHAT --> ROUTER
-        ROUTER -->|Tool Calls| TOOLS
-        ROUTER -->|Final Response| END_NODE
+        CHAT --> ROUTER_NODE
+        ROUTER_NODE -->|Tool Calls| TOOLS
+        ROUTER_NODE -->|Final Response| END_NODE
         TOOLS -->|Pre-Approved / Read Tool| CHAT
         TOOLS -->|Sensitive Tool / HITL| INTERRUPT
     end
 
-    subgraph Integrations["External Services & Protocols"]
-        MCP_SERVERS[FastMCP Subprocesses: Google Workspace, GitHub]
+    subgraph Integrations["External Services, MCP & Persistence"]
+        BUILTIN_MCP[Built-in FastMCP: Google Workspace, GitHub]
+        CUSTOM_MCP[Custom Remote MCP Servers: Streamable HTTP, SSE]
         CHROMA[(ChromaDB Vector Store: RAG)]
         MEM_STORE[(In-Memory BaseStore: User LTM)]
-        CHECKPOINT[(MemorySaver Checkpointer)]
+        DB[(SQLAlchemy Relational Store: Users, Sessions, Connectors)]
     end
 
+    ROUTER --> UI
     UI -->|POST /api/chat/stream| API
     HITL_UI -->|POST /api/chat/resume/stream| API
+    API --> AUTH
+    AUTH --> DB
     API --> Agent
-    Agent --> TRACER
     CHAT --> REGISTRY
-    TOOLS --> MCP_SERVERS
+    REGISTRY --> CONN_REG
+    CONN_REG --> BUILTIN_MCP
+    CONN_REG --> CUSTOM_MCP
     TOOLS --> CHROMA
     REMEMBER --> MEM_STORE
-    Agent --> CHECKPOINT
 ```
 
 ---
 
-## 2. LangGraph Workflow Topology
+## 2. Information Architecture & Navigation Separation
 
-The core agent loop is structured as a directed acyclic graph with conditional tool-calling cycles:
+Nexus AI strictly separates user concerns into dedicated product areas:
 
-1. **`START` $\to$ `remember` (`remember_node`)**:
-   - Analyzes incoming user text against existing user memories.
-   - Extracts atomic factual items (profile, preferences, projects) using heuristic fallback or structured LLM calls.
-   - Stores new facts in `InMemoryStore` under namespace `("user", user_id, "memories")`.
-
-2. **`remember` $\to$ `summarize` (`summarize_conversation_node`)**:
-   - Inspects conversation history length.
-   - If history exceeds 6 messages, triggers a rolling summary of older turns and retains the 4 most recent messages.
-
-3. **`summarize` $\to$ `chat` (`chat_node`)**:
-   - Injects user memories and conversation summary into the system prompt.
-   - Binds active tools (filtered against `disabled_tools`).
-   - Invokes the LLM (`openai/gpt-oss-120b` via Groq OpenAI compatibility or `gpt-4o-mini`).
-
-4. **`chat` $\to$ `tools_condition` (Conditional Router)**:
-   - If the model returns `tool_calls`, routes to `tools`.
-   - If the model returns plain content, routes to `END`.
-
-5. **`tools` (`tool_node`)**:
-   - Executes built-in, RAG, or MCP tools.
-   - If a sensitive tool (`send_email_action`, `execute_database_mutation`) is called, triggers `langgraph.types.interrupt(payload)` to pause graph execution and yield an interactive approval event to the frontend.
-   - On completion or resumption, returns `ToolMessage` and routes back to `chat`.
+- **My Profile (`/profile`)**: Strictly user identity (Avatar, Full Name, Display Name, Email, Account Join Date).
+- **Personalization (`/personalization`)**: Assistant interaction behavior (Response Style, Conversation Tone, Preferred Language, Custom Instructions, Citation Pills toggle, Tool Badges toggle).
+- **Settings (`/settings`)**: Application configuration (General shortcuts, Appearance theme, Privacy & Data export, Active security sessions, Long-Term Memory manager).
+- **Language (`/settings/language`)**: Dedicated interface and conversational language selection.
+- **Skills (`/skills`)**: High-level agent workflows (Code Debugging, RAG Research, GitHub Assistant, Google Workspace, SQL Inspection) mapping required tools and MCP capabilities.
+- **Connectors (`/connectors`)**: External service connections (GitHub, Google Workspace, Slack, Notion) and custom remote MCP server registrations.
+- **Plugins (`/plugins`)**: Modular extension packages (ChromaDB RAG, Python Code Sandbox, Long-Term Memory Engine, FastMCP Universal Bridge).
+- **Help & Capabilities (`/help`)**: System reference explaining agent loops, tools, connectors, and safety rules.
 
 ---
 
@@ -89,6 +82,7 @@ The core agent loop is structured as a directed acyclic graph with conditional t
 
 | Layer | Implementation | Purpose | Lifespan |
 |---|---|---|---|
+| **User & Session Store** | SQLAlchemy + Alembic (`sqlite+aiosqlite` / `asyncpg`) | `users`, `sessions`, `user_preferences`, `connectors` | Persistent DB |
 | **Short-Term Memory** | `MemorySaver` checkpointer | Graph checkpoints per `thread_id`, task interrupts, tool execution states | Current session / Thread |
 | **Long-Term Memory** | `InMemoryStore` (`BaseStore`) | Atomic user facts and preferences (`("user", user_id, "memories")`) | Cross-thread / User lifetime |
 | **RAG Vector Database** | `ChromaDB` (`langchain-chroma`) | Chunk embeddings and cosine similarity retrieval for uploaded PDFs/documents | Persistent disk |

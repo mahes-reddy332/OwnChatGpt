@@ -1,5 +1,10 @@
-from fastapi import APIRouter, UploadFile, File, HTTPException
-from pydantic import BaseModel, Field
+from fastapi import APIRouter, UploadFile, File, HTTPException, Depends
+from pydantic import BaseModel
+from sqlalchemy.ext.asyncio import AsyncSession
+from app.database.session import get_db
+from app.auth.models import User, Session
+from app.auth.service import auth_service
+from app.auth.dependencies import get_current_user, get_current_user_and_session, verify_csrf_token
 from app.rag.pipeline import get_ingestion_pipeline
 
 router = APIRouter(prefix="/documents", tags=["documents"])
@@ -15,10 +20,18 @@ class DocumentInfoResponse(BaseModel):
 
 
 @router.post("/upload", response_model=DocumentInfoResponse)
-async def upload_document(file: UploadFile = File(...)):
+async def upload_document(
+    file: UploadFile = File(...),
+    auth_ctx: tuple[User, Session] = Depends(get_current_user_and_session),
+    db: AsyncSession = Depends(get_db),
+    _: None = Depends(verify_csrf_token),
+):
     """
-    Upload and ingest a document (.pdf, .txt, .md) into the RAG vector store.
+    Upload and ingest a document into the RAG vector store.
     """
+    _, session = auth_ctx
+    await auth_service.touch_session(db, session)
+
     if not file.filename:
         raise HTTPException(status_code=400, detail="Filename is required.")
 
@@ -40,7 +53,9 @@ async def upload_document(file: UploadFile = File(...)):
 
 
 @router.get("", response_model=list[DocumentInfoResponse])
-async def list_documents():
+async def list_documents(
+    user: User = Depends(get_current_user),
+):
     """
     List all documents currently ingested in the knowledge base.
     """

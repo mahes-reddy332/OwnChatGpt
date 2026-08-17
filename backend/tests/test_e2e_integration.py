@@ -53,13 +53,14 @@ async def test_e2e_workflow_lifecycle(client: TestClient):
     5. Test chat sync endpoint
     6. Verify memory and thread state
     """
-    user_id = f"e2e_user_{uuid.uuid4()}"
+    me_res = client.get("/api/auth/me")
+    assert me_res.status_code == 200
+    user_id = me_res.json()["id"]
     thread_id = f"e2e_thread_{uuid.uuid4()}"
 
     # 1. Create long-term memory
     mem_res = client.post("/api/memory", json={
         "text": "User is developing a full-stack LangGraph application",
-        "user_id": user_id,
         "category": "project",
     })
     assert mem_res.status_code == 200
@@ -95,6 +96,6 @@ async def test_e2e_workflow_lifecycle(client: TestClient):
     assert tracer_config["run_name"] == "E2E-TestRun"
 
     # 6. Cleanup user memory
-    clear_res = client.delete(f"/api/memory/clear?user_id={user_id}")
+    clear_res = client.delete("/api/memory/clear")
     assert clear_res.status_code == 200
     assert clear_res.json()["success"] is True

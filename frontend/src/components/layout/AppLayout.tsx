@@ -1,11 +1,17 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { useParams, useNavigate } from 'react-router-dom';
 import { ThreadSidebar } from '../threads/ThreadSidebar';
 import { ChatWindow } from '../chat/ChatWindow';
 import { useThreads } from '../../hooks/useThreads';
 import { useChat } from '../../hooks/useChat';
+import { useAuth } from '../../auth/AuthContext';
 
 export const AppLayout: React.FC = () => {
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+  const { threadId: urlThreadId } = useParams<{ threadId?: string }>();
+  const navigate = useNavigate();
+  const { setIsStreaming, triggerMeaningfulActivity } = useAuth();
+
   const {
     threads,
     activeThreadId,
@@ -16,6 +22,13 @@ export const AppLayout: React.FC = () => {
     renameThread,
     deleteThread,
   } = useThreads();
+
+  // Sync active thread with URL param if present
+  useEffect(() => {
+    if (urlThreadId && urlThreadId !== activeThreadId) {
+      setActiveThreadId(urlThreadId);
+    }
+  }, [urlThreadId, activeThreadId, setActiveThreadId]);
 
   const {
     messages,
@@ -29,10 +42,32 @@ export const AppLayout: React.FC = () => {
     dismissError,
   } = useChat(activeThreadId, refreshThreads);
 
+  // Sync streaming state to AuthContext to pause idle timer during execution
+  useEffect(() => {
+    setIsStreaming(status === 'streaming');
+  }, [status, setIsStreaming]);
+
   const activeThread = threads.find(t => t.id === activeThreadId);
 
   const handleNewChat = async () => {
-    await createThread();
+    triggerMeaningfulActivity();
+    const newThread = await createThread();
+    if (newThread && 'id' in (newThread as { id: string })) {
+      navigate(`/chat/${(newThread as { id: string }).id}`);
+    }
+  };
+
+  const handleSelectThread = (id: string) => {
+    setActiveThreadId(id);
+    navigate(`/chat/${id}`);
+    if (window.innerWidth < 768) {
+      setIsSidebarOpen(false);
+    }
+  };
+
+  const handleSend = async (text: string) => {
+    triggerMeaningfulActivity();
+    await send(text);
   };
 
   return (
@@ -50,16 +85,19 @@ export const AppLayout: React.FC = () => {
         threads={threads}
         activeThreadId={activeThreadId}
         isLoading={isLoadingThreads}
-        onSelectThread={id => {
-          setActiveThreadId(id);
-          // Auto close on mobile
-          if (window.innerWidth < 768) {
-            setIsSidebarOpen(false);
+        onSelectThread={handleSelectThread}
+        onCreateThread={handleNewChat}
+        onRenameThread={async (id, title) => {
+          triggerMeaningfulActivity();
+          await renameThread(id, title);
+        }}
+        onDeleteThread={async (id) => {
+          triggerMeaningfulActivity();
+          await deleteThread(id);
+          if (activeThreadId === id) {
+            navigate('/chat');
           }
         }}
-        onCreateThread={handleNewChat}
-        onRenameThread={renameThread}
-        onDeleteThread={deleteThread}
         isOpen={isSidebarOpen}
         onToggle={() => setIsSidebarOpen(!isSidebarOpen)}
       />
@@ -70,7 +108,7 @@ export const AppLayout: React.FC = () => {
           messages={messages}
           status={status}
           error={error}
-          onSend={send}
+          onSend={handleSend}
           onResumeDecision={resumeDecision}
           onStop={stopStreaming}
           onNewChat={handleNewChat}

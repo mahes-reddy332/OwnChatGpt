@@ -1,12 +1,17 @@
 import uuid
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
+from sqlalchemy.ext.asyncio import AsyncSession
 from langchain_core.messages import HumanMessage
 from langgraph.types import Command
 from app.agent.graph import get_agent_graph
 from app.core.logging import setup_logging
 from app.core.config import get_settings
+from app.database.session import get_db
+from app.auth.models import User, Session
+from app.auth.service import auth_service
+from app.auth.dependencies import get_current_user_and_session, verify_csrf_token
 from app.streaming.adapter import stream_graph_events
 from app.persistence.thread_store import get_thread_store
 from app.observability.tracer import build_tracer_config
@@ -33,12 +38,25 @@ class ChatResponse(BaseModel):
 
 
 @router.post("/chat", response_model=ChatResponse)
-async def chat_endpoint(request: ChatRequest):
+async def chat_endpoint(
+    request: ChatRequest,
+    auth_ctx: tuple[User, Session] = Depends(get_current_user_and_session),
+    db: AsyncSession = Depends(get_db),
+    _: None = Depends(verify_csrf_token),
+):
     """
     Process a user message through the LangGraph agent and return the full response.
     """
+    user, session = auth_ctx
+    # Meaningful activity touch
+    await auth_service.touch_session(db, session)
+
     thread_id = request.thread_id or str(uuid.uuid4())
-    await get_thread_store().touch_thread(thread_id, auto_title_candidate=request.message)
+    await get_thread_store().touch_thread(
+        thread_id,
+        auto_title_candidate=request.message,
+        user_id=user.id,
+    )
     graph = get_agent_graph()
     
     try:
@@ -48,9 +66,11 @@ async def chat_endpoint(request: ChatRequest):
             thread_id=thread_id,
             run_name="ChatEndpoint-Sync",
             tags=["sync-api"],
-            metadata={"user_message_length": len(request.message)},
+            metadata={"user_message_length": len(request.message), "user_id": user.id},
         )
-        config.setdefault("configurable", {})["disabled_tools"] = request.disabled_tools
+        cfg_dict = config.setdefault("configurable", {})
+        cfg_dict["disabled_tools"] = request.disabled_tools
+        cfg_dict["user_id"] = user.id
         
         result = await graph.ainvoke(input_state, config=config)
         
@@ -71,12 +91,25 @@ async def chat_endpoint(request: ChatRequest):
 
 
 @router.post("/chat/stream")
-async def chat_stream_endpoint(request: ChatRequest):
+async def chat_stream_endpoint(
+    request: ChatRequest,
+    auth_ctx: tuple[User, Session] = Depends(get_current_user_and_session),
+    db: AsyncSession = Depends(get_db),
+    _: None = Depends(verify_csrf_token),
+):
     """
     Stream the agent's response to a user message using Server-Sent Events (SSE).
     """
+    user, session = auth_ctx
+    # Meaningful activity touch
+    await auth_service.touch_session(db, session)
+
     thread_id = request.thread_id or str(uuid.uuid4())
-    await get_thread_store().touch_thread(thread_id, auto_title_candidate=request.message)
+    await get_thread_store().touch_thread(
+        thread_id,
+        auto_title_candidate=request.message,
+        user_id=user.id,
+    )
     graph = get_agent_graph()
     
     user_msg = HumanMessage(content=request.message)
@@ -85,9 +118,11 @@ async def chat_stream_endpoint(request: ChatRequest):
         thread_id=thread_id,
         run_name="ChatStreamEndpoint-SSE",
         tags=["stream-sse"],
-        metadata={"user_message_length": len(request.message)},
+        metadata={"user_message_length": len(request.message), "user_id": user.id},
     )
-    config.setdefault("configurable", {})["disabled_tools"] = request.disabled_tools
+    cfg_dict = config.setdefault("configurable", {})
+    cfg_dict["disabled_tools"] = request.disabled_tools
+    cfg_dict["user_id"] = user.id
     
     return StreamingResponse(
         stream_graph_events(graph, input_state, config, thread_id),
@@ -101,17 +136,27 @@ async def chat_stream_endpoint(request: ChatRequest):
 
 
 @router.post("/chat/resume", response_model=ChatResponse)
-async def chat_resume_endpoint(request: HitlResumeRequest):
+async def chat_resume_endpoint(
+    request: HitlResumeRequest,
+    auth_ctx: tuple[User, Session] = Depends(get_current_user_and_session),
+    db: AsyncSession = Depends(get_db),
+    _: None = Depends(verify_csrf_token),
+):
     """
     Resume an interrupted LangGraph execution synchronously with the human's decision.
     """
+    user, session = auth_ctx
+    await auth_service.touch_session(db, session)
+
     graph = get_agent_graph()
     config = build_tracer_config(
         thread_id=request.thread_id,
         run_name="ChatResume-Sync",
         tags=["hitl-resume"],
-        metadata={"decision": request.decision},
+        metadata={"decision": request.decision, "user_id": user.id},
     )
+    cfg_dict = config.setdefault("configurable", {})
+    cfg_dict["user_id"] = user.id
 
     try:
         command = Command(resume={"decision": request.decision, "modified_args": request.modified_args})
@@ -133,17 +178,27 @@ async def chat_resume_endpoint(request: HitlResumeRequest):
 
 
 @router.post("/chat/resume/stream")
-async def chat_resume_stream_endpoint(request: HitlResumeRequest):
+async def chat_resume_stream_endpoint(
+    request: HitlResumeRequest,
+    auth_ctx: tuple[User, Session] = Depends(get_current_user_and_session),
+    db: AsyncSession = Depends(get_db),
+    _: None = Depends(verify_csrf_token),
+):
     """
     Resume an interrupted LangGraph execution and stream the continuation using SSE.
     """
+    user, session = auth_ctx
+    await auth_service.touch_session(db, session)
+
     graph = get_agent_graph()
     config = build_tracer_config(
         thread_id=request.thread_id,
         run_name="ChatResume-SSE",
         tags=["hitl-resume-sse"],
-        metadata={"decision": request.decision},
+        metadata={"decision": request.decision, "user_id": user.id},
     )
+    cfg_dict = config.setdefault("configurable", {})
+    cfg_dict["user_id"] = user.id
 
     command = Command(resume={"decision": request.decision, "modified_args": request.modified_args})
     

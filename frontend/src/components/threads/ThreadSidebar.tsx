@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import type { Thread } from '../../types/thread';
 import { ThreadItem } from './ThreadItem';
 import { Plus, Search, PanelLeftClose } from 'lucide-react';
+import { UserAccountMenu } from '../account/UserAccountMenu';
 
 interface ThreadSidebarProps {
   threads: Thread[];
@@ -61,7 +62,7 @@ export const ThreadSidebar: React.FC<ThreadSidebarProps> = ({
 
         <button
           onClick={onToggle}
-          className="p-1.5 rounded-[var(--radius-md)] hover:bg-[var(--color-bg-tertiary)] text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] md:flex"
+          className="p-1.5 rounded-[var(--radius-md)] hover:bg-[var(--color-bg-tertiary)] text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] md:flex cursor-pointer"
           title="Close sidebar"
         >
           <PanelLeftClose size={18} />
@@ -72,14 +73,14 @@ export const ThreadSidebar: React.FC<ThreadSidebarProps> = ({
       <div className="p-3">
         <button
           onClick={onCreateThread}
-          className="w-full flex items-center justify-center space-x-2 px-4 py-2.5 rounded-[var(--radius-md)] bg-[var(--color-bg-elevated)] hover:bg-[var(--color-bg-hover)] border border-[var(--color-border)] text-[var(--color-text-primary)] transition-all duration-150 text-sm font-medium shadow-sm"
+          className="w-full flex items-center justify-center space-x-2 px-4 py-2.5 rounded-[var(--radius-md)] bg-[var(--color-bg-elevated)] hover:bg-[var(--color-bg-hover)] border border-[var(--color-border)] text-[var(--color-text-primary)] transition-all duration-150 text-sm font-medium shadow-sm cursor-pointer"
         >
           <Plus size={16} />
           <span>New Chat</span>
         </button>
       </div>
 
-      {/* Search Input (if threads > 3) */}
+      {/* Search Input */}
       {threads.length > 3 && (
         <div className="px-3 pb-2">
           <div className="relative flex items-center">
@@ -126,13 +127,16 @@ export const ThreadSidebar: React.FC<ThreadSidebarProps> = ({
         )}
       </div>
 
-      {/* Footer */}
-      <div className="p-3 border-t border-[var(--color-border)] text-xs text-[var(--color-text-tertiary)] flex items-center justify-between">
+      {/* User Account Menu */}
+      <UserAccountMenu />
+
+      {/* Footer Status */}
+      <div className="px-3 py-2 border-t border-[var(--color-border)] text-xs text-[var(--color-text-tertiary)] flex items-center justify-between bg-slate-950/40">
         <span className="flex items-center space-x-1.5">
           <span className="w-2 h-2 rounded-full bg-[var(--color-success)] inline-block" />
-          <span>Backend Connected</span>
+          <span className="text-[11px]">Nexus Connected</span>
         </span>
-        <span className="text-[10px] text-[var(--color-text-tertiary)]">v0.1.0</span>
+        <span className="text-[10px] text-[var(--color-text-tertiary)] font-mono">v1.0.0</span>
       </div>
     </aside>
   );
