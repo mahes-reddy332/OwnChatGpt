@@ -1,0 +1,72 @@
+# === Environment & Secrets ===
+.env
+*.env
+*.env.local
+.env.*.local
+credentials.json
+token.json
+**/credentials.json
+**/token.json
+
+# === Python ===
+__pycache__/
+**/__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+*.egg
+dist/
+build/
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.ipynb_checkpoints/
+*.ipynb
+
+# === Node.js ===
+node_modules/
+**/node_modules/
+frontend/dist/
+frontend/.next/
+frontend/out/
+
+# === IDE & OS ===
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# === Database & Data Persistence ===
+*.sqlite
+*.sqlite3
+*.db
+backend/data/
+**/data/chroma/
+**/data/chroma_db/
+**/data/nexus_ai.db
+**/data/app.db
+
+# === Logs ===
+*.log
+logs/
+
+# === Vector Store ===
+chroma_data/
+chromadb/
+
+# === Scratch & Temporary ===
+Chat2.0.ipynb
+Check.py
+ReChat.py
+ReferenceFiles/
+ai-chatbot/
+*.bak
+*.tmp
