@@ -18,6 +18,10 @@ from app.observability.tracer import setup_langsmith
 import app.tools.builtin  # Registers all built-in tools
 import app.hitl.tools   # Registers all HITL tools
 
+# Ensure all database models are imported before any database operation
+import app.auth.models  # noqa: F401
+import app.connectors.models  # noqa: F401
+
 settings = get_settings()
 logger = setup_logging(settings.LOG_LEVEL)
 
@@ -75,7 +79,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Global error handler ensuring CORS headers are always attached even on 500 errors
+# Global error handler ensuring CORS headers are always attached with diagnostic detail
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
     logger.error(f"Unhandled Exception on {request.method} {request.url.path}: {exc}", exc_info=True)
@@ -87,7 +91,7 @@ async def global_exception_handler(request: Request, exc: Exception):
         headers["Access-Control-Allow-Credentials"] = "true"
     return JSONResponse(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-        content={"detail": "An internal server error occurred. Please try again later."},
+        content={"detail": f"Internal Server Error: {str(exc)}"},
         headers=headers,
     )
 
