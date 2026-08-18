@@ -3,6 +3,25 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.database.session import get_db
 from app.auth.models import User, Session
 from app.auth.service import auth_service
+from app.core.config import get_settings
+
+settings = get_settings()
+
+
+def get_cors_origins() -> list[str]:
+    """Build CORS origins list combining defaults and configured origins."""
+    origins = [
+        settings.FRONTEND_URL,
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+        "https://nexus-nine-flax-34.vercel.app",
+    ]
+    if settings.CORS_ALLOWED_ORIGINS:
+        for orig in settings.CORS_ALLOWED_ORIGINS.split(","):
+            cleaned = orig.strip()
+            if cleaned and cleaned not in origins:
+                origins.append(cleaned)
+    return origins
 
 
 def get_session_token(request: Request) -> str | None:
@@ -49,18 +68,38 @@ async def get_optional_user(
 
 def verify_csrf_token(request: Request) -> None:
     """
-    Verify anti-CSRF token on mutating requests (POST, PUT, DELETE).
-    Validates that request.headers['x-csrf-token'] matches the 'nexus_csrf' cookie.
+    Verify anti-CSRF protection on mutating requests (POST, PUT, DELETE, PATCH).
+    Follows OWASP CSRF Defense guidelines:
+    1. Safe methods (GET, HEAD, OPTIONS) are exempt.
+    2. Origin / Referer validation against whitelist of trusted frontend domains.
+    3. Double-submit cookie check if X-CSRF-Token is present.
     """
     # Safe methods do not require CSRF check
     if request.method in ("GET", "HEAD", "OPTIONS"):
         return
 
+    allowed_origins = get_cors_origins()
+    origin = request.headers.get("origin")
+    referer = request.headers.get("referer")
+
+    # 1. Verify Origin header matches authorized frontend
+    if origin:
+        if origin in allowed_origins or "*" in allowed_origins:
+            return
+
+    # 2. Check Referer header if Origin is not sent
+    if referer:
+        if any(referer.startswith(allowed) for allowed in allowed_origins):
+            return
+
+    # 3. Check double-submit cookie matching
     csrf_cookie = request.cookies.get("nexus_csrf")
     csrf_header = request.headers.get("x-csrf-token") or request.headers.get("X-CSRF-Token")
 
-    if not csrf_cookie or not csrf_header or csrf_cookie != csrf_header:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="CSRF validation failed: X-CSRF-Token header missing or invalid.",
-        )
+    if csrf_cookie and csrf_header and csrf_cookie == csrf_header:
+        return
+
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="CSRF validation failed: Unauthorized request origin.",
+    )
