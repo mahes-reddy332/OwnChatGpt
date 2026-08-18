@@ -21,10 +21,26 @@ settings = get_settings()
 logger = setup_logging(settings.LOG_LEVEL)
 
 
+def get_cors_origins() -> list[str]:
+    """Build CORS origins list combining defaults and configured origins."""
+    origins = [
+        settings.FRONTEND_URL,
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+        "https://nexus-nine-flax-34.vercel.app",
+    ]
+    if settings.CORS_ALLOWED_ORIGINS:
+        for orig in settings.CORS_ALLOWED_ORIGINS.split(","):
+            cleaned = orig.strip()
+            if cleaned and cleaned not in origins:
+                origins.append(cleaned)
+    return origins
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Lifespan context manager for startup and shutdown events."""
-    logger.info("Starting Nexus AI Agentic Workspace Backend...")
+    logger.info(f"Starting Nexus AI Workspace Backend [{settings.ENVIRONMENT}]...")
     
     # 1. Initialize Database Schema
     try:
@@ -52,7 +68,7 @@ app = FastAPI(title="Nexus AI — Agentic Assistant API", lifespan=lifespan)
 # CORS configuration
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[settings.FRONTEND_URL, "http://localhost:5173", "http://127.0.0.1:5173"],
+    allow_origins=get_cors_origins(),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

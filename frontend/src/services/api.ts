@@ -13,7 +13,16 @@ import type { Thread, ThreadDetail } from '../types/thread';
 import type { IngestedDocument } from '../types/rag';
 import type { User, UserPreferences, SessionInfo } from '../types/auth';
 
-const API_BASE = '/api';
+/**
+ * Authoritative API base URL:
+ * Resolves VITE_API_URL if configured, otherwise defaults to '/api' for same-origin proxy.
+ */
+const rawApiUrl = (import.meta.env.VITE_API_URL as string | undefined)?.trim() || '';
+const API_BASE = rawApiUrl
+  ? rawApiUrl.endsWith('/api')
+    ? rawApiUrl
+    : `${rawApiUrl.replace(/\/$/, '')}/api`
+  : '/api';
 
 /**
  * Helper to retrieve CSRF token from document cookie.
@@ -40,6 +49,27 @@ function buildHeaders(isJson: boolean = true, isMutating: boolean = false): Reco
   return headers;
 }
 
+/**
+ * Safely parse error messages from server response with developer diagnostics.
+ */
+async function parseErrorDetail(response: Response, defaultMessage: string): Promise<string> {
+  try {
+    const text = await response.text();
+    if (!text) {
+      return `${defaultMessage} (HTTP ${response.status})`;
+    }
+    try {
+      const data = JSON.parse(text);
+      return data.detail || data.message || `${defaultMessage} (HTTP ${response.status})`;
+    } catch {
+      console.error(`[Nexus API Error] HTTP ${response.status}:`, text.slice(0, 300));
+      return `${defaultMessage} (HTTP ${response.status}: ${response.statusText || 'Server Error'})`;
+    }
+  } catch {
+    return `${defaultMessage} (HTTP ${response.status})`;
+  }
+}
+
 /* =========================================================================
    AUTHENTICATION API
    ========================================================================= */
@@ -63,8 +93,8 @@ export async function signupApi(
   });
 
   if (!response.ok) {
-    const err = await response.json().catch(() => ({ detail: 'Failed to sign up' }));
-    throw new Error(err.detail || `HTTP ${response.status}`);
+    const errorMsg = await parseErrorDetail(response, 'Failed to sign up');
+    throw new Error(errorMsg);
   }
 
   return response.json();
@@ -79,8 +109,8 @@ export async function loginApi(email: string, password: string): Promise<User> {
   });
 
   if (!response.ok) {
-    const err = await response.json().catch(() => ({ detail: 'Invalid credentials' }));
-    throw new Error(err.detail || `HTTP ${response.status}`);
+    const errorMsg = await parseErrorDetail(response, 'Invalid credentials');
+    throw new Error(errorMsg);
   }
 
   return response.json();
@@ -127,8 +157,8 @@ export async function updateProfileApi(
   });
 
   if (!response.ok) {
-    const err = await response.json().catch(() => ({ detail: 'Failed to update profile' }));
-    throw new Error(err.detail || `HTTP ${response.status}`);
+    const errorMsg = await parseErrorDetail(response, 'Failed to update profile');
+    throw new Error(errorMsg);
   }
 
   return response.json();
@@ -157,8 +187,8 @@ export async function updatePreferencesApi(
   });
 
   if (!response.ok) {
-    const err = await response.json().catch(() => ({ detail: 'Failed to update preferences' }));
-    throw new Error(err.detail || `HTTP ${response.status}`);
+    const errorMsg = await parseErrorDetail(response, 'Failed to update preferences');
+    throw new Error(errorMsg);
   }
 
   return response.json();
@@ -209,8 +239,8 @@ export async function sendMessage(request: ChatRequest): Promise<ChatResponse> {
   });
 
   if (!response.ok) {
-    const error = await response.json().catch(() => ({ detail: 'Unknown error' }));
-    throw new Error(error.detail || `HTTP ${response.status}`);
+    const errorMsg = await parseErrorDetail(response, 'Chat request failed');
+    throw new Error(errorMsg);
   }
 
   return response.json();
@@ -233,8 +263,7 @@ export async function streamChatMessage(
   });
 
   if (!response.ok) {
-    const errorData = await response.json().catch(() => ({ detail: `HTTP ${response.status}` }));
-    const errorMsg = errorData.detail || `HTTP ${response.status}`;
+    const errorMsg = await parseErrorDetail(response, `Streaming HTTP ${response.status}`);
     callbacks.onError?.({ detail: errorMsg, code: 'HTTP_ERROR' });
     throw new Error(errorMsg);
   }
@@ -345,7 +374,8 @@ export async function resumeChatStream(
   });
 
   if (!response.ok) {
-    throw new Error(`Resume request failed: HTTP ${response.status}`);
+    const errorMsg = await parseErrorDetail(response, `Resume request failed: HTTP ${response.status}`);
+    throw new Error(errorMsg);
   }
 
   if (!response.body) {
@@ -457,7 +487,8 @@ export async function createThread(title?: string): Promise<Thread> {
     body: JSON.stringify({ title }),
   });
   if (!response.ok) {
-    throw new Error(`Failed to create thread: HTTP ${response.status}`);
+    const errorMsg = await parseErrorDetail(response, 'Failed to create thread');
+    throw new Error(errorMsg);
   }
   return response.json();
 }
@@ -483,7 +514,8 @@ export async function updateThreadTitle(
     body: JSON.stringify({ title }),
   });
   if (!response.ok) {
-    throw new Error(`Failed to update thread: HTTP ${response.status}`);
+    const errorMsg = await parseErrorDetail(response, 'Failed to update thread');
+    throw new Error(errorMsg);
   }
   return response.json();
 }
@@ -495,7 +527,8 @@ export async function deleteThread(threadId: string): Promise<void> {
     headers: buildHeaders(true, true),
   });
   if (!response.ok) {
-    throw new Error(`Failed to delete thread: HTTP ${response.status}`);
+    const errorMsg = await parseErrorDetail(response, 'Failed to delete thread');
+    throw new Error(errorMsg);
   }
 }
 
@@ -517,8 +550,8 @@ export async function uploadDocument(file: File): Promise<IngestedDocument> {
   });
 
   if (!response.ok) {
-    const err = await response.json().catch(() => ({ detail: `HTTP ${response.status}` }));
-    throw new Error(err.detail || 'Failed to upload document');
+    const err = await parseErrorDetail(response, 'Failed to upload document');
+    throw new Error(err);
   }
 
   return response.json();
@@ -568,7 +601,8 @@ export async function addOrUpdateMCPServer(
     body: JSON.stringify(server),
   });
   if (!response.ok) {
-    throw new Error(`Failed to save MCP server: HTTP ${response.status}`);
+    const errorMsg = await parseErrorDetail(response, 'Failed to save MCP server');
+    throw new Error(errorMsg);
   }
   return response.json();
 }
@@ -580,7 +614,8 @@ export async function deleteMCPServer(serverId: string): Promise<void> {
     headers: buildHeaders(true, true),
   });
   if (!response.ok) {
-    throw new Error(`Failed to delete MCP server: HTTP ${response.status}`);
+    const errorMsg = await parseErrorDetail(response, 'Failed to delete MCP server');
+    throw new Error(errorMsg);
   }
 }
 
@@ -591,7 +626,8 @@ export async function reloadMCPServers(): Promise<{ success: boolean; tools_disc
     headers: buildHeaders(true, true),
   });
   if (!response.ok) {
-    throw new Error(`Failed to reload MCP servers: HTTP ${response.status}`);
+    const errorMsg = await parseErrorDetail(response, 'Failed to reload MCP servers');
+    throw new Error(errorMsg);
   }
   return response.json();
 }
@@ -618,7 +654,8 @@ export async function createMemory(text: string, category: string = 'fact'): Pro
     body: JSON.stringify({ text, category }),
   });
   if (!response.ok) {
-    throw new Error(`Failed to create memory: HTTP ${response.status}`);
+    const errorMsg = await parseErrorDetail(response, 'Failed to create memory');
+    throw new Error(errorMsg);
   }
   return response.json();
 }
@@ -630,7 +667,8 @@ export async function deleteMemory(memoryId: string): Promise<void> {
     headers: buildHeaders(true, true),
   });
   if (!response.ok) {
-    throw new Error(`Failed to delete memory: HTTP ${response.status}`);
+    const errorMsg = await parseErrorDetail(response, 'Failed to delete memory');
+    throw new Error(errorMsg);
   }
 }
 
@@ -646,7 +684,8 @@ export async function updateMemory(
     body: JSON.stringify({ text, category }),
   });
   if (!response.ok) {
-    throw new Error(`Failed to update memory: HTTP ${response.status}`);
+    const errorMsg = await parseErrorDetail(response, 'Failed to update memory');
+    throw new Error(errorMsg);
   }
   return response.json();
 }
@@ -658,7 +697,8 @@ export async function clearAllMemories(): Promise<number> {
     headers: buildHeaders(true, true),
   });
   if (!response.ok) {
-    throw new Error(`Failed to clear memories: HTTP ${response.status}`);
+    const errorMsg = await parseErrorDetail(response, 'Failed to clear memories');
+    throw new Error(errorMsg);
   }
   const data = await response.json();
   return data.cleared_count || 0;
@@ -671,7 +711,8 @@ export async function cleanupMemories(): Promise<number> {
     headers: buildHeaders(true, true),
   });
   if (!response.ok) {
-    throw new Error(`Failed to cleanup memories: HTTP ${response.status}`);
+    const errorMsg = await parseErrorDetail(response, 'Failed to cleanup memories');
+    throw new Error(errorMsg);
   }
   const data = await response.json();
   return data.clean_memories_count || 0;

@@ -36,3 +36,16 @@
 - **Symptom**: `interrupt()` calls in custom tool execution functions were bypassed or failing to pause Pregel graph execution.
 - **Root Cause**: Custom wrapper nodes around tool calling interfered with LangGraph's internal `ToolNode` interrupt bubbling.
 - **Resolution**: Converted graph to direct `ToolNode` creation in `app/agent/nodes/tools.py` allowing native `langgraph.types.interrupt()` propagation to `astream_events()`.
+
+---
+
+### 1.5 Deployed Vercel Signup 404 & SPA Routing Issue
+- **Symptom**: Submitting signup on deployed Vercel URL returned `Failed to sign up`.
+- **Root Cause**:
+  1. Vercel deployment was hosting only the static React SPA build with no backend running at `/api/*` and missing `vercel.json` SPA rewrites.
+  2. `frontend/src/services/api.ts` hardcoded `API_BASE = '/api'`, causing browser to fetch `/api/auth/signup` on Vercel static router (HTTP 404 text response).
+- **Resolution**:
+  1. Created authoritative `frontend/vercel.json` configuring SPA fallback routing (`/(.*)` $\to$ `/index.html`).
+  2. Updated `api.ts` to dynamically resolve `import.meta.env.VITE_API_URL`.
+  3. Upgraded API error parser to log diagnostic error codes (`HTTP 404: Not Found`) instead of generic failure messages.
+  4. Documented production backend deployment instructions (`DATABASE_URL=postgresql+asyncpg://...`, `AUTH_COOKIE_SECURE=True`, `FRONTEND_URL`) in `docs/DEPLOYMENT.md`.

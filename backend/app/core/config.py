@@ -5,6 +5,8 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
     """Application settings loaded from environment variables."""
+    ENVIRONMENT: str = "development"  # 'development', 'staging', 'production'
+    
     # LLM Provider Configuration ('groq', 'huggingface', or 'openai')
     LLM_PROVIDER: str = "groq"
     
@@ -27,6 +29,7 @@ class Settings(BaseSettings):
     PORT: int = 8000
     DEBUG: bool = True
     FRONTEND_URL: str = "http://localhost:5173"
+    CORS_ALLOWED_ORIGINS: str = ""
     LOG_LEVEL: str = "INFO"
     
     # Database Configuration (SQLite dev / PostgreSQL prod)
@@ -41,6 +44,7 @@ class Settings(BaseSettings):
     AUTH_COOKIE_SECURE: bool = False
     AUTH_COOKIE_SAMESITE: str = "lax"
     AUTH_SECRET_KEY: str = "nexus_ai_secure_dev_secret_key_change_in_prod"
+    SECRET_KEY: str = "nexus_ai_secure_dev_secret_key_change_in_prod"
     
     # GitHub Integration
     GITHUB_PERSONAL_ACCESS_TOKEN: str = ""

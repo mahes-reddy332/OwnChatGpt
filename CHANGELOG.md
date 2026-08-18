@@ -4,32 +4,33 @@ All notable changes to the **Nexus AI** Agentic AI Workspace project will be doc
 
 ---
 
+## [1.4.0] — 2026-08-18 (Production Readiness & Vercel Deployment Hardening)
+
+### Added & Fixed
+- **Authoritative Vercel SPA Routing** (`frontend/vercel.json`):
+  - Configured SPA rewrite (`/(.*)` $\to$ `/index.html`) so subroutes (`/signup`, `/login`, `/chat`, `/settings`) do not 404 on direct load or refresh.
+- **Dynamic Frontend API Base URL** (`frontend/src/services/api.ts`):
+  - Added support for `VITE_API_URL` environment variable with automated `/api` normalization for connecting to external backend deployments.
+  - Upgraded error parser to log diagnostic error codes (e.g. `HTTP 404: Not Found`) instead of swallowing failures into generic strings.
+- **Production Backend Dependencies & CORS**:
+  - Added `asyncpg`, `sqlalchemy`, `alembic`, `bcrypt`, `cryptography`, `langchain-groq`, `fastmcp` to `backend/requirements.txt`.
+  - Added `CORS_ALLOWED_ORIGINS` and dynamic CORS origin resolution in `backend/app/main.py`.
+- **Production Deployment Runbook & Documentation**:
+  - Created [`docs/DEPLOYMENT.md`](file:///c:/Users/PC-ACER/Documents/DeepLearning/ChatGpt/docs/DEPLOYMENT.md) with container deployment instructions, environment variable matrix, and Alembic migration guide.
+  - Created [`docs/VERCEL.md`](file:///c:/Users/PC-ACER/Documents/DeepLearning/ChatGpt/docs/VERCEL.md) explaining frontend Vercel deployment and routing.
+  - Updated [`docs/TROUBLESHOOTING.md`](file:///c:/Users/PC-ACER/Documents/DeepLearning/ChatGpt/docs/TROUBLESHOOTING.md) with root-cause analysis and resolution for the Vercel signup 404.
+
+---
+
 ## [1.3.0] — 2026-08-18 (Rich Message Renderer & Structured Chat UX)
 
 ### Added
 - **Rich Message Renderer Architecture**:
   - Integrated `react-markdown` and `remark-gfm` with full AST component mappings.
-  - **CodeBlock Component** (`CodeBlock.tsx`): Language label badge (`python`, `typescript`, `sql`), copy-to-clipboard button with visual feedback, horizontal scrolling, and monospace font.
-  - **DataTable Component** (`DataTable.tsx`): Responsive Markdown table wrapper preserving horizontal scrolling for wide/complex tables with styled `thead`, alternating row hovers, and clean padding.
-  - **Streaming Markdown Normalization**: Rendering-only in-memory code fence balancer that handles unclosed code blocks during token arrival without mutating state.
-  - **Markdown Elements**:
-    - Headings (`h1`, `h2`, `h3`, `h4`) with clear visual hierarchy and proper letter spacing.
-    - Paragraphs with comfortable line-height and vertical rhythm.
-    - Bullet and numbered lists with nested indentation.
-    - Blockquotes and callouts with left accent border.
-    - Clickable external links with `target="_blank"` and `rel="noopener noreferrer"`.
-    - Pill-styled inline code tags (`code_evaluator`, `POST /api/chat`).
-- **Message Action Bar** (`MessageActions.tsx`):
-  - Copy assistant response to clipboard with animated checkmark feedback.
-  - Timestamp rendering.
-- **Modern Assistant Message Layout** (`Message.tsx`):
-  - Nexus AI Sparkles avatar badge, assistant title, real-time "Generating" indicator.
-  - Dedicated tool execution cards (`ToolCall.tsx`), interactive HITL cards (`HitlApprovalCard.tsx`), and RAG citation pills (`SourceCitation.tsx`) cleanly composed above and below the message body.
-- **System Prompt Formatting Guidance** (`chat.py`):
-  - Prompt instructions updated to encourage clean headings, short paragraphs, bullet points, and code blocks for snippets.
-- **Verification**:
-  - Frontend compiled in 549ms with 0 errors (`npm run build`).
-  - Backend pytest suite passing (44/44 tests).
+  - **CodeBlock Component** (`CodeBlock.tsx`): Language label badge, copy-to-clipboard button with visual feedback, horizontal scrolling.
+  - **DataTable Component** (`DataTable.tsx`): Responsive Markdown table wrapper preserving horizontal scrolling.
+  - **Streaming Markdown Normalization**: In-memory code fence balancer for incomplete streaming chunks.
+  - Headings, lists, blockquotes, inline code, and clickable links.
 
 ---
 
