@@ -7,7 +7,8 @@ from app.auth.models import User, Session, UserPreferences
 
 
 def utcnow() -> datetime:
-    return datetime.now(timezone.utc)
+    """Return timezone-naive UTC datetime for seamless asyncpg / SQLite TIMESTAMP compatibility."""
+    return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
 class AuthRepository:
@@ -93,13 +94,15 @@ class AuthRepository:
     ) -> Session:
         sid = str(uuid.uuid4())
         now = utcnow()
+        # Ensure expires_at is naive for TIMESTAMP WITHOUT TIME ZONE
+        exp_naive = expires_at.replace(tzinfo=None) if expires_at.tzinfo else expires_at
         session = Session(
             id=sid,
             user_id=user_id,
             token_hash=token_hash,
             created_at=now,
             last_activity_at=now,
-            expires_at=expires_at,
+            expires_at=exp_naive,
             is_revoked=False,
             user_agent=user_agent,
             ip_address=ip_address,

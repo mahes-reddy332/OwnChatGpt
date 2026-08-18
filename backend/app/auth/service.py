@@ -10,7 +10,8 @@ settings = get_settings()
 
 
 def utcnow() -> datetime:
-    return datetime.now(timezone.utc)
+    """Return timezone-naive UTC datetime for seamless asyncpg / SQLite TIMESTAMP compatibility."""
+    return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
 class AuthService:
@@ -101,8 +102,7 @@ class AuthService:
         now = utcnow()
 
         # Check absolute session expiration (Hard cutoff: 7 days)
-        # Normalise timezone
-        exp = session.expires_at.replace(tzinfo=timezone.utc) if session.expires_at.tzinfo is None else session.expires_at
+        exp = session.expires_at.replace(tzinfo=None) if session.expires_at.tzinfo else session.expires_at
         if now > exp:
             await auth_repo.revoke_session(db, session)
             raise HTTPException(
@@ -111,7 +111,7 @@ class AuthService:
             )
 
         # Check idle timeout (30 minutes)
-        last_act = session.last_activity_at.replace(tzinfo=timezone.utc) if session.last_activity_at.tzinfo is None else session.last_activity_at
+        last_act = session.last_activity_at.replace(tzinfo=None) if session.last_activity_at.tzinfo else session.last_activity_at
         idle_seconds = (now - last_act).total_seconds()
         if idle_seconds > (settings.AUTH_IDLE_TIMEOUT_MINUTES * 60):
             await auth_repo.revoke_session(db, session)
@@ -134,7 +134,7 @@ class AuthService:
         Throttled to update DB at most once every 60 seconds.
         """
         now = utcnow()
-        last_act = session.last_activity_at.replace(tzinfo=timezone.utc) if session.last_activity_at.tzinfo is None else session.last_activity_at
+        last_act = session.last_activity_at.replace(tzinfo=None) if session.last_activity_at.tzinfo else session.last_activity_at
         if (now - last_act).total_seconds() > 60:
             await auth_repo.touch_session_activity(db, session)
 

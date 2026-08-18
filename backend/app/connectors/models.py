@@ -14,7 +14,8 @@ from app.database.session import Base
 
 
 def utc_now():
-    return datetime.now(timezone.utc)
+    """Return timezone-naive UTC datetime for seamless asyncpg / SQLite TIMESTAMP compatibility."""
+    return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
 class Connector(Base):
@@ -35,8 +36,8 @@ class Connector(Base):
     status = Column(String(50), nullable=False, default="not_configured")  # connected, not_configured, connecting, error, disabled
     status_message = Column(Text, nullable=True)
     is_builtin = Column(Boolean, default=False, nullable=False)
-    created_at = Column(DateTime(timezone=True), default=utc_now, nullable=False)
-    updated_at = Column(DateTime(timezone=True), default=utc_now, onupdate=utc_now, nullable=False)
+    created_at = Column(DateTime, default=utc_now, nullable=False)
+    updated_at = Column(DateTime, default=utc_now, onupdate=utc_now, nullable=False)
 
     # Relationships
     credentials = relationship("ConnectorCredential", back_populates="connector", cascade="all, delete-orphan", uselist=False)
@@ -53,8 +54,8 @@ class ConnectorCredential(Base):
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     connector_id = Column(String(36), ForeignKey("connectors.id", ondelete="CASCADE"), unique=True, nullable=False, index=True)
     encrypted_data = Column(Text, nullable=False)
-    created_at = Column(DateTime(timezone=True), default=utc_now, nullable=False)
-    updated_at = Column(DateTime(timezone=True), default=utc_now, onupdate=utc_now, nullable=False)
+    created_at = Column(DateTime, default=utc_now, nullable=False)
+    updated_at = Column(DateTime, default=utc_now, onupdate=utc_now, nullable=False)
 
     connector = relationship("Connector", back_populates="credentials")
 
@@ -76,7 +77,7 @@ class MCPCapability(Base):
     is_mandatory_hitl = Column(Boolean, default=False, nullable=False)  # Server-enforced rule, cannot be disabled by user
     requires_hitl = Column(Boolean, default=False, nullable=False)  # Effective HITL requirement
     is_enabled = Column(Boolean, default=False, nullable=False)  # User selection
-    created_at = Column(DateTime(timezone=True), default=utc_now, nullable=False)
-    updated_at = Column(DateTime(timezone=True), default=utc_now, onupdate=utc_now, nullable=False)
+    created_at = Column(DateTime, default=utc_now, nullable=False)
+    updated_at = Column(DateTime, default=utc_now, onupdate=utc_now, nullable=False)
 
     connector = relationship("Connector", back_populates="capabilities")

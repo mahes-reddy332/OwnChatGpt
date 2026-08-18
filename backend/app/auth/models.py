@@ -6,7 +6,8 @@ from app.database.session import Base
 
 
 def utcnow() -> datetime:
-    return datetime.now(timezone.utc)
+    """Return timezone-naive UTC datetime for seamless asyncpg / SQLite TIMESTAMP compatibility."""
+    return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
 class User(Base):
