@@ -38,6 +38,10 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
 
 
 async def init_db() -> None:
-    """Initialize database tables."""
+    """Initialize database tables with all registered SQLAlchemy models."""
+    # Explicitly import all models to populate Base.metadata
+    from app.auth.models import User, Session, UserPreferences  # noqa: F401
+    from app.connectors.models import Connector, ConnectorCredential, MCPCapability  # noqa: F401
+
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)

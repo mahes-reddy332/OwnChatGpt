@@ -1,6 +1,7 @@
 from contextlib import asynccontextmanager
-from fastapi import FastAPI
+from fastapi import FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from app.core.config import get_settings
 from app.core.logging import setup_logging
 from app.database.session import init_db
@@ -47,7 +48,7 @@ async def lifespan(app: FastAPI):
         await init_db()
         logger.info("Database initialized successfully.")
     except Exception as e:
-        logger.warning(f"Database initialization notice: {e}")
+        logger.error(f"Database initialization error: {e}", exc_info=True)
 
     # 2. Initialize LangSmith Tracing
     setup_langsmith()
@@ -73,6 +74,22 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Global error handler ensuring CORS headers are always attached even on 500 errors
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    logger.error(f"Unhandled Exception on {request.method} {request.url.path}: {exc}", exc_info=True)
+    origin = request.headers.get("origin")
+    allowed = get_cors_origins()
+    headers = {}
+    if origin and (origin in allowed or "*" in allowed):
+        headers["Access-Control-Allow-Origin"] = origin
+        headers["Access-Control-Allow-Credentials"] = "true"
+    return JSONResponse(
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        content={"detail": "An internal server error occurred. Please try again later."},
+        headers=headers,
+    )
 
 # Include routers
 app.include_router(auth_router)
