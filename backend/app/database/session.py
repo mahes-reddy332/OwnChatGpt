@@ -6,15 +6,38 @@ from app.core.config import get_settings
 
 settings = get_settings()
 
+
+def get_normalized_database_url(raw_url: str) -> str:
+    """
+    Ensure the database URL uses the asyncpg driver for PostgreSQL or aiosqlite for SQLite.
+    Cloud providers like Render/Heroku inject 'postgresql://' or 'postgres://', which must
+    be mapped to 'postgresql+asyncpg://' for SQLAlchemy AsyncIO.
+    """
+    if not raw_url:
+        return "sqlite+aiosqlite:///./data/nexus_ai.db"
+    
+    url = raw_url.strip()
+    if url.startswith("postgres://"):
+        return url.replace("postgres://", "postgresql+asyncpg://", 1)
+    if url.startswith("postgresql://") and not url.startswith("postgresql+"):
+        return url.replace("postgresql://", "postgresql+asyncpg://", 1)
+    if url.startswith("sqlite://") and not url.startswith("sqlite+"):
+        return url.replace("sqlite://", "sqlite+aiosqlite://", 1)
+    return url
+
+
+db_url = get_normalized_database_url(settings.DATABASE_URL)
+
 # Ensure local data directory exists for SQLite
-if "sqlite" in settings.DATABASE_URL:
+if "sqlite" in db_url:
     db_path = Path(__file__).resolve().parent.parent.parent / "data"
     db_path.mkdir(parents=True, exist_ok=True)
 
 engine = create_async_engine(
-    settings.DATABASE_URL,
+    db_url,
     echo=False,
     future=True,
+    pool_pre_ping=True,
 )
 
 AsyncSessionLocal = async_sessionmaker(

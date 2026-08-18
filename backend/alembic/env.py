@@ -6,8 +6,9 @@ from sqlalchemy.ext.asyncio import async_engine_from_config
 from alembic import context
 
 from app.core.config import get_settings
-from app.database.session import Base
+from app.database.session import Base, get_normalized_database_url
 from app.auth.models import User, Session, UserPreferences  # register all models
+from app.connectors.models import Connector, ConnectorCredential, MCPCapability  # register connectors models
 
 config = context.config
 settings = get_settings()
@@ -17,9 +18,9 @@ if config.config_file_name is not None:
 
 target_metadata = Base.metadata
 
-# Override sqlalchemy.url with configured DATABASE_URL
-# Convert sqlite+aiosqlite or postgresql+asyncpg for alembic async migrations
-config.set_main_option("sqlalchemy.url", settings.DATABASE_URL)
+# Override sqlalchemy.url with normalized DATABASE_URL
+db_url = get_normalized_database_url(settings.DATABASE_URL)
+config.set_main_option("sqlalchemy.url", db_url)
 
 
 def run_migrations_offline() -> None:
