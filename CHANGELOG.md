@@ -4,6 +4,23 @@ All notable changes to the **Nexus AI** Agentic AI Workspace project will be doc
 
 ---
 
+## [1.4.1] — 2026-08-18 (Database URL Auto-Normalization & Cross-Origin Robustness)
+
+### Added & Fixed
+- **Database URL Auto-Normalization** (`backend/app/database/session.py`, `backend/alembic/env.py`):
+  - Added `get_normalized_database_url()` to automatically convert standard Cloud `postgres://` or `postgresql://` connection strings into `postgresql+asyncpg://` for SQLAlchemy AsyncIO and Alembic.
+  - Added `pool_pre_ping=True` to prevent stale database pool connections.
+- **Global Error Handling with CORS Guarantee** (`backend/app/main.py`):
+  - Wrapped unhandled server exceptions to guarantee `Access-Control-Allow-Origin` and `Access-Control-Allow-Credentials` are attached even on HTTP 500 error responses, preventing browser `Failed to fetch` false negatives.
+- **Model Registration & Alembic Migrations**:
+  - Explicitly registered all models (`User`, `Session`, `UserPreferences`, `Connector`, `ConnectorCredential`, `MCPCapability`) in `session.py` and `alembic/env.py`.
+  - Added migration `002_add_connectors_tables.py`.
+- **Documentation**:
+  - Created [`docs/AUTHENTICATION.md`](file:///c:/Users/PC-ACER/Documents/DeepLearning/ChatGpt/docs/AUTHENTICATION.md).
+  - Updated [`PROJECT_DOCUMENTATION.md`](file:///c:/Users/PC-ACER/Documents/DeepLearning/ChatGpt/PROJECT_DOCUMENTATION.md).
+
+---
+
 ## [1.4.0] — 2026-08-18 (Production Readiness & Vercel Deployment Hardening)
 
 ### Added & Fixed

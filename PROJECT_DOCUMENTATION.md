@@ -46,6 +46,7 @@ Detailed technical specifications and subsystem guides are located in the [`docs
 |---|---|
 | 🚀 [**Production Deployment Guide**](file:///c:/Users/PC-ACER/Documents/DeepLearning/ChatGpt/docs/DEPLOYMENT.md) | Containerized FastAPI deployment runbook, PostgreSQL setup, environment variable matrix, and pre-flight checklist. |
 | ⚡ [**Vercel Configuration Guide**](file:///c:/Users/PC-ACER/Documents/DeepLearning/ChatGpt/docs/VERCEL.md) | Vercel SPA rewrites (`vercel.json`), root directory setup, and frontend environment variables. |
+| 🔐 [**Authentication Architecture**](file:///c:/Users/PC-ACER/Documents/DeepLearning/ChatGpt/docs/AUTHENTICATION.md) | Opaque session tokens, SHA-256 hashing, 30-min idle / 7-day max policy, CSRF protection, and cross-site cookies. |
 | 📐 [**Architecture Guide**](file:///c:/Users/PC-ACER/Documents/DeepLearning/ChatGpt/docs/ARCHITECTURE.md) | High-level system design, LangGraph graph topology, node execution flows, and state schemas. |
 | 🛡️ [**HITL Safety Guidelines**](file:///c:/Users/PC-ACER/Documents/DeepLearning/ChatGpt/docs/HITL_GUIDELINES.md) | Human-in-the-loop safety principles, risk-tiered tool matrix, interrupt/resume lifecycle, and UI contracts. |
 | 🧠 [**Memory Architecture**](file:///c:/Users/PC-ACER/Documents/DeepLearning/ChatGpt/docs/MEMORY.md) | Short-Term Memory checkpointer, Long-Term Memory extraction, atomic categories, and conflict resolution. |
